@@ -22,9 +22,14 @@
 2. **⚡ Slash Commands & Text Commands**:
    - `/muteall` or `!muteall`: Server-mutes everyone in your voice channel.
    - `/unmuteall` or `!unmuteall`: Unmutes everyone in your voice channel.
+   - `/mute @member` or `!mute @member`: Server-mutes a specific person in voice.
+   - `/unmute @member` or `!unmute @member`: Server-unmutes a specific person in voice.
    - `/voicepanel` or `!voicepanel`: Displays the clickable buttons.
 
-3. **⌨️ Local Windows Hotkey (`Ctrl + M`)**:
+3. **🖱️ Right-Click Context Menu**:
+   - Right-click any user in voice → **Apps** → click **Mute in Voice** or **Unmute in Voice**!
+
+4. **⌨️ Local Windows Hotkey (`Ctrl + Alt + P`)**:
    - Optional feature: when running the bot locally on your PC, pressing `Ctrl + M` anywhere on your computer instantly toggles mute/unmute for everyone in your voice channel!
 
 ---

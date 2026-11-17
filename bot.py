@@ -270,6 +270,109 @@ async def slash_unmuteall(interaction: discord.Interaction):
     await interaction.followup.send(msg)
 
 
+@bot.tree.command(name="mute", description="Server-mutes a specific member in voice.")
+@app_commands.describe(member="The member you want to mute in voice")
+@app_commands.checks.has_permissions(mute_members=True)
+async def slash_mute(interaction: discord.Interaction, member: discord.Member):
+    if not member.voice or not member.voice.channel:
+        await interaction.response.send_message(
+            f"⚠️ **{member.display_name}** is not in any voice channel.", ephemeral=True
+        )
+        return
+
+    if member.voice.mute:
+        await interaction.response.send_message(
+            f"ℹ️ **{member.display_name}** is already server-muted.", ephemeral=True
+        )
+        return
+
+    try:
+        await member.edit(mute=True)
+        await interaction.response.send_message(
+            f"🔇 **{member.mention}** has been server-muted in **{member.voice.channel.name}**."
+        )
+    except discord.Forbidden:
+        await interaction.response.send_message(
+            f"❌ Could not mute **{member.display_name}**! "
+            f"Make sure Charlotte's role is placed **above** their role in Server Settings → Roles.",
+            ephemeral=True,
+        )
+    except Exception as e:
+        await interaction.response.send_message(f"❌ Error: {e}", ephemeral=True)
+
+
+@bot.tree.command(name="unmute", description="Server-unmutes a specific member in voice.")
+@app_commands.describe(member="The member you want to unmute in voice")
+@app_commands.checks.has_permissions(mute_members=True)
+async def slash_unmute(interaction: discord.Interaction, member: discord.Member):
+    if not member.voice or not member.voice.channel:
+        await interaction.response.send_message(
+            f"⚠️ **{member.display_name}** is not in any voice channel.", ephemeral=True
+        )
+        return
+
+    if not member.voice.mute:
+        await interaction.response.send_message(
+            f"ℹ️ **{member.display_name}** is not server-muted.", ephemeral=True
+        )
+        return
+
+    try:
+        await member.edit(mute=False)
+        await interaction.response.send_message(
+            f"🔊 **{member.mention}** has been server-unmuted in **{member.voice.channel.name}**."
+        )
+    except discord.Forbidden:
+        await interaction.response.send_message(
+            f"❌ Could not unmute **{member.display_name}**! "
+            f"Check Charlotte's role hierarchy and permissions.",
+            ephemeral=True,
+        )
+    except Exception as e:
+        await interaction.response.send_message(f"❌ Error: {e}", ephemeral=True)
+
+
+# Right-click User -> Apps -> Mute / Unmute
+@bot.tree.context_menu(name="Mute in Voice")
+@app_commands.checks.has_permissions(mute_members=True)
+async def context_mute(interaction: discord.Interaction, member: discord.Member):
+    if not member.voice or not member.voice.channel:
+        await interaction.response.send_message(
+            f"⚠️ **{member.display_name}** is not in a voice channel.", ephemeral=True
+        )
+        return
+
+    try:
+        await member.edit(mute=True)
+        await interaction.response.send_message(
+            f"🔇 **{member.mention}** has been server-muted.", ephemeral=True
+        )
+    except discord.Forbidden:
+        await interaction.response.send_message(
+            f"❌ Cannot mute **{member.display_name}**. Ensure Charlotte's role is higher.", ephemeral=True
+        )
+
+
+@bot.tree.context_menu(name="Unmute in Voice")
+@app_commands.checks.has_permissions(mute_members=True)
+async def context_unmute(interaction: discord.Interaction, member: discord.Member):
+    if not member.voice or not member.voice.channel:
+        await interaction.response.send_message(
+            f"⚠️ **{member.display_name}** is not in a voice channel.", ephemeral=True
+        )
+        return
+
+    try:
+        await member.edit(mute=False)
+        await interaction.response.send_message(
+            f"🔊 **{member.mention}** has been server-unmuted.", ephemeral=True
+        )
+    except discord.Forbidden:
+        await interaction.response.send_message(
+            f"❌ Cannot unmute **{member.display_name}**. Check role permissions.", ephemeral=True
+        )
+
+
 # ==========================================
 # Traditional Prefix Commands (!join, !leave, etc.)
 # ==========================================
@@ -341,6 +444,52 @@ async def cmd_unmuteall(ctx: commands.Context):
     if failed:
         msg += f" *(Note: {failed} could not be modified)*"
     await ctx.send(msg)
+
+
+@bot.command(name="mute")
+@commands.has_permissions(mute_members=True)
+async def cmd_mute(ctx: commands.Context, member: discord.Member):
+    if not member.voice or not member.voice.channel:
+        await ctx.send(f"⚠️ **{member.display_name}** is not in any voice channel.")
+        return
+
+    if member.voice.mute:
+        await ctx.send(f"ℹ️ **{member.display_name}** is already server-muted.")
+        return
+
+    try:
+        await member.edit(mute=True)
+        await ctx.send(f"🔇 **{member.mention}** has been server-muted.")
+    except discord.Forbidden:
+        await ctx.send(
+            f"❌ Could not mute **{member.display_name}**. "
+            f"Make sure Charlotte's role is placed **above** their role in Server Settings → Roles!"
+        )
+    except Exception as e:
+        await ctx.send(f"❌ Error: {e}")
+
+
+@bot.command(name="unmute")
+@commands.has_permissions(mute_members=True)
+async def cmd_unmute(ctx: commands.Context, member: discord.Member):
+    if not member.voice or not member.voice.channel:
+        await ctx.send(f"⚠️ **{member.display_name}** is not in any voice channel.")
+        return
+
+    if not member.voice.mute:
+        await ctx.send(f"ℹ️ **{member.display_name}** is not server-muted.")
+        return
+
+    try:
+        await member.edit(mute=False)
+        await ctx.send(f"🔊 **{member.mention}** has been server-unmuted.")
+    except discord.Forbidden:
+        await ctx.send(
+            f"❌ Could not unmute **{member.display_name}**. "
+            f"Check Charlotte's role permissions."
+        )
+    except Exception as e:
+        await ctx.send(f"❌ Error: {e}")
 
 
 # ==========================================
