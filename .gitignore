@@ -22,3 +22,6 @@ Thumbs.db
 Desktop.ini
 .DS_Store
 
+# Data files
+force_muted.json
+

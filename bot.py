@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 import sys
 import threading
@@ -31,6 +32,50 @@ intents.guilds = True
 
 bot = commands.Bot(command_prefix=PREFIX, intents=intents)
 
+# ==========================================
+# Force Mute Storage & State
+# ==========================================
+
+FORCE_MUTED_FILE = "force_muted.json"
+
+def load_force_muted() -> set[int]:
+    """Loads force-muted user IDs from file."""
+    if os.path.exists(FORCE_MUTED_FILE):
+        try:
+            with open(FORCE_MUTED_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                return set(int(uid) for uid in data)
+        except Exception as e:
+            print(f"[ForceMute] Could not load {FORCE_MUTED_FILE}: {e}")
+            return set()
+    return set()
+
+def save_force_muted(users: set[int]):
+    """Saves force-muted user IDs to file."""
+    try:
+        with open(FORCE_MUTED_FILE, "w", encoding="utf-8") as f:
+            json.dump(list(users), f, indent=2)
+    except Exception as e:
+        print(f"[ForceMute] Could not save {FORCE_MUTED_FILE}: {e}")
+
+force_muted_users: set[int] = load_force_muted()
+
+
+@bot.event
+async def on_voice_state_update(member: discord.Member, before: discord.VoiceState, after: discord.VoiceState):
+    """
+    Enforces force-mute: If a force-muted user joins a channel or tries to unmute,
+    Charlotte immediately re-mutes them.
+    """
+    if member.id in force_muted_users and after.channel is not None:
+        if not after.mute:
+            try:
+                await member.edit(mute=True)
+            except discord.Forbidden:
+                pass
+            except Exception as e:
+                print(f"[ForceMute Enforce Error] Could not re-mute {member.display_name}: {e}")
+
 
 async def ensure_bot_in_channel(channel: discord.VoiceChannel):
     """Ensures the bot is connected to the specified voice channel."""
@@ -57,6 +102,7 @@ async def execute_mute_channel(
     """
     Mutes or unmutes non-bot members in the given voice channel.
     If exclude_user_id is None, mutes/unmutes EVERYONE including the caller.
+    Force-muted users are NEVER unmuted by channel-wide unmuteall commands.
     Returns: (successful_count, failed_count)
     """
     success = 0
@@ -66,6 +112,9 @@ async def execute_mute_channel(
         if member.bot:
             continue
         if exclude_user_id and member.id == exclude_user_id:
+            continue
+        # Protect force-muted users from being unmuted during unmuteall
+        if not target_mute and member.id in force_muted_users:
             continue
 
         try:
@@ -305,6 +354,14 @@ async def slash_mute(interaction: discord.Interaction, member: discord.Member):
 @app_commands.describe(member="The member you want to unmute in voice")
 @app_commands.checks.has_permissions(mute_members=True)
 async def slash_unmute(interaction: discord.Interaction, member: discord.Member):
+    if member.id in force_muted_users:
+        await interaction.response.send_message(
+            f"⚠️ **{member.display_name}** is **Force-Muted**!\n"
+            f"Use `/forceunmute` or `!forceunmute` to release them first.",
+            ephemeral=True,
+        )
+        return
+
     if not member.voice or not member.voice.channel:
         await interaction.response.send_message(
             f"⚠️ **{member.display_name}** is not in any voice channel.", ephemeral=True
@@ -332,7 +389,84 @@ async def slash_unmute(interaction: discord.Interaction, member: discord.Member)
         await interaction.response.send_message(f"❌ Error: {e}", ephemeral=True)
 
 
-# Right-click User -> Apps -> Mute / Unmute
+@bot.tree.command(name="forcemute", description="Force-mutes a member. They cannot be unmuted by unmuteall.")
+@app_commands.describe(member="The member to lock in muted state")
+@app_commands.checks.has_permissions(mute_members=True)
+async def slash_forcemute(interaction: discord.Interaction, member: discord.Member):
+    if member.bot:
+        await interaction.response.send_message("❌ Bots cannot be force-muted.", ephemeral=True)
+        return
+
+    force_muted_users.add(member.id)
+    save_force_muted(force_muted_users)
+
+    if member.voice and member.voice.channel:
+        try:
+            await member.edit(mute=True)
+        except discord.Forbidden:
+            await interaction.response.send_message(
+                f"⚠️ Added {member.mention} to Force-Mute list, but Charlotte's role is too low to mute them right now. "
+                f"(Make sure Charlotte's role is above them in Server Roles!).",
+                ephemeral=True,
+            )
+            return
+
+    await interaction.response.send_message(
+        f"🔨 **{member.mention}** has been **Force-Muted**!\n"
+        f"They will stay muted even if `/unmuteall` or `!unmuteall` is used.\n"
+        f"Use `/forceunmute` or `!forceunmute` to release them."
+    )
+
+
+@bot.tree.command(name="forceunmute", description="Removes the force-mute lock from a member.")
+@app_commands.describe(member="The member to release from force-mute")
+@app_commands.checks.has_permissions(mute_members=True)
+async def slash_forceunmute(interaction: discord.Interaction, member: discord.Member):
+    if member.id not in force_muted_users:
+        await interaction.response.send_message(
+            f"ℹ️ **{member.display_name}** is not in the Force-Mute list.", ephemeral=True
+        )
+        return
+
+    force_muted_users.discard(member.id)
+    save_force_muted(force_muted_users)
+
+    if member.voice and member.voice.channel and member.voice.mute:
+        try:
+            await member.edit(mute=False)
+        except Exception:
+            pass
+
+    await interaction.response.send_message(
+        f"🔓 **{member.mention}** has been released from Force-Mute and can speak again."
+    )
+
+
+@bot.tree.command(name="forcemuted", description="Shows list of all currently force-muted users.")
+@app_commands.checks.has_permissions(mute_members=True)
+async def slash_forcemuted(interaction: discord.Interaction):
+    if not force_muted_users:
+        await interaction.response.send_message("ℹ️ No users are currently force-muted.", ephemeral=True)
+        return
+
+    lines = []
+    for uid in list(force_muted_users):
+        user = interaction.guild.get_member(uid) if interaction.guild else None
+        if user:
+            lines.append(f"• {user.mention} (`{user.display_name}` - ID: `{uid}`)")
+        else:
+            lines.append(f"• User ID: `{uid}`")
+
+    embed = discord.Embed(
+        title="🔨 Force-Muted Users",
+        description="\n".join(lines),
+        color=discord.Color.dark_red(),
+    )
+    embed.set_footer(text="These users will NOT be unmuted by unmuteall.")
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+# Right-click User -> Apps -> Mute / Unmute / Force Mute / Force Unmute
 @bot.tree.context_menu(name="Mute in Voice")
 @app_commands.checks.has_permissions(mute_members=True)
 async def context_mute(interaction: discord.Interaction, member: discord.Member):
@@ -356,6 +490,13 @@ async def context_mute(interaction: discord.Interaction, member: discord.Member)
 @bot.tree.context_menu(name="Unmute in Voice")
 @app_commands.checks.has_permissions(mute_members=True)
 async def context_unmute(interaction: discord.Interaction, member: discord.Member):
+    if member.id in force_muted_users:
+        await interaction.response.send_message(
+            f"⚠️ **{member.display_name}** is **Force-Muted**! Use Force Unmute to release them.",
+            ephemeral=True,
+        )
+        return
+
     if not member.voice or not member.voice.channel:
         await interaction.response.send_message(
             f"⚠️ **{member.display_name}** is not in a voice channel.", ephemeral=True
@@ -371,6 +512,39 @@ async def context_unmute(interaction: discord.Interaction, member: discord.Membe
         await interaction.response.send_message(
             f"❌ Cannot unmute **{member.display_name}**. Check role permissions.", ephemeral=True
         )
+
+
+@bot.tree.context_menu(name="Force Mute")
+@app_commands.checks.has_permissions(mute_members=True)
+async def context_forcemute(interaction: discord.Interaction, member: discord.Member):
+    if member.bot:
+        await interaction.response.send_message("❌ Bots cannot be force-muted.", ephemeral=True)
+        return
+    force_muted_users.add(member.id)
+    save_force_muted(force_muted_users)
+    if member.voice and member.voice.channel:
+        try:
+            await member.edit(mute=True)
+        except discord.Forbidden:
+            pass
+    await interaction.response.send_message(
+        f"🔨 **{member.mention}** is now **Force-Muted** (immune to unmuteall).", ephemeral=True
+    )
+
+
+@bot.tree.context_menu(name="Force Unmute")
+@app_commands.checks.has_permissions(mute_members=True)
+async def context_forceunmute(interaction: discord.Interaction, member: discord.Member):
+    force_muted_users.discard(member.id)
+    save_force_muted(force_muted_users)
+    if member.voice and member.voice.channel and member.voice.mute:
+        try:
+            await member.edit(mute=False)
+        except Exception:
+            pass
+    await interaction.response.send_message(
+        f"🔓 **{member.mention}** is no longer Force-Muted.", ephemeral=True
+    )
 
 
 # ==========================================
@@ -472,6 +646,13 @@ async def cmd_mute(ctx: commands.Context, member: discord.Member):
 @bot.command(name="unmute")
 @commands.has_permissions(mute_members=True)
 async def cmd_unmute(ctx: commands.Context, member: discord.Member):
+    if member.id in force_muted_users:
+        await ctx.send(
+            f"⚠️ **{member.display_name}** is **Force-Muted**!\n"
+            f"Use `!forceunmute {member.mention}` to release them first."
+        )
+        return
+
     if not member.voice or not member.voice.channel:
         await ctx.send(f"⚠️ **{member.display_name}** is not in any voice channel.")
         return
@@ -490,6 +671,76 @@ async def cmd_unmute(ctx: commands.Context, member: discord.Member):
         )
     except Exception as e:
         await ctx.send(f"❌ Error: {e}")
+
+
+@bot.command(name="forcemute")
+@commands.has_permissions(mute_members=True)
+async def cmd_forcemute(ctx: commands.Context, member: discord.Member):
+    if member.bot:
+        await ctx.send("❌ Bots cannot be force-muted.")
+        return
+
+    force_muted_users.add(member.id)
+    save_force_muted(force_muted_users)
+
+    if member.voice and member.voice.channel:
+        try:
+            await member.edit(mute=True)
+        except discord.Forbidden:
+            await ctx.send(
+                f"⚠️ Added {member.mention} to Force-Mute list, but Charlotte's role is too low to mute them right now. "
+                f"(Make sure Charlotte's role is above them in Server Roles!)."
+            )
+            return
+
+    await ctx.send(
+        f"🔨 **{member.mention}** has been **Force-Muted**!\n"
+        f"They will stay muted even if `!unmuteall` or `/unmuteall` is used.\n"
+        f"Use `!forceunmute {member.mention}` to release them."
+    )
+
+
+@bot.command(name="forceunmute")
+@commands.has_permissions(mute_members=True)
+async def cmd_forceunmute(ctx: commands.Context, member: discord.Member):
+    if member.id not in force_muted_users:
+        await ctx.send(f"ℹ️ **{member.display_name}** is not in the Force-Mute list.")
+        return
+
+    force_muted_users.discard(member.id)
+    save_force_muted(force_muted_users)
+
+    if member.voice and member.voice.channel and member.voice.mute:
+        try:
+            await member.edit(mute=False)
+        except Exception:
+            pass
+
+    await ctx.send(f"🔓 **{member.mention}** has been released from Force-Mute and can speak again.")
+
+
+@bot.command(name="forcemuted")
+@commands.has_permissions(mute_members=True)
+async def cmd_forcemuted(ctx: commands.Context):
+    if not force_muted_users:
+        await ctx.send("ℹ️ No users are currently force-muted.")
+        return
+
+    lines = []
+    for uid in list(force_muted_users):
+        user = ctx.guild.get_member(uid) if ctx.guild else None
+        if user:
+            lines.append(f"• {user.mention} (`{user.display_name}` - ID: `{uid}`)")
+        else:
+            lines.append(f"• User ID: `{uid}`")
+
+    embed = discord.Embed(
+        title="🔨 Force-Muted Users",
+        description="\n".join(lines),
+        color=discord.Color.dark_red(),
+    )
+    embed.set_footer(text="These users will NOT be unmuted by unmuteall.")
+    await ctx.send(embed=embed)
 
 
 # ==========================================
