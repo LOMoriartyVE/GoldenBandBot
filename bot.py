@@ -442,6 +442,32 @@ async def slash_forceunmute(interaction: discord.Interaction, member: discord.Me
     )
 
 
+@bot.tree.command(name="forceunmuteall", description="Clears all force-muted users and unmutes them.")
+@app_commands.checks.has_permissions(mute_members=True)
+async def slash_forceunmuteall(interaction: discord.Interaction):
+    if not force_muted_users:
+        await interaction.response.send_message("ℹ️ There are no force-muted users to release.", ephemeral=True)
+        return
+
+    count = len(force_muted_users)
+    guild = interaction.guild
+    if guild:
+        for uid in list(force_muted_users):
+            member = guild.get_member(uid)
+            if member and member.voice and member.voice.channel and member.voice.mute:
+                try:
+                    await member.edit(mute=False)
+                except Exception:
+                    pass
+
+    force_muted_users.clear()
+    save_force_muted(force_muted_users)
+
+    await interaction.response.send_message(
+        f"🔓 **Force-Mute Cleared!** Released all **{count}** user(s) from Force-Mute."
+    )
+
+
 @bot.tree.command(name="forcemuted", description="Shows list of all currently force-muted users.")
 @app_commands.checks.has_permissions(mute_members=True)
 async def slash_forcemuted(interaction: discord.Interaction):
@@ -717,6 +743,30 @@ async def cmd_forceunmute(ctx: commands.Context, member: discord.Member):
             pass
 
     await ctx.send(f"🔓 **{member.mention}** has been released from Force-Mute and can speak again.")
+
+
+@bot.command(name="forceunmuteall")
+@commands.has_permissions(mute_members=True)
+async def cmd_forceunmuteall(ctx: commands.Context):
+    if not force_muted_users:
+        await ctx.send("ℹ️ There are no force-muted users to release.")
+        return
+
+    count = len(force_muted_users)
+    guild = ctx.guild
+    if guild:
+        for uid in list(force_muted_users):
+            member = guild.get_member(uid)
+            if member and member.voice and member.voice.channel and member.voice.mute:
+                try:
+                    await member.edit(mute=False)
+                except Exception:
+                    pass
+
+    force_muted_users.clear()
+    save_force_muted(force_muted_users)
+
+    await ctx.send(f"🔓 **Force-Mute Cleared!** Released all **{count}** user(s) from Force-Mute.")
 
 
 @bot.command(name="forcemuted")

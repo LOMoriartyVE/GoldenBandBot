@@ -24,6 +24,7 @@
    - `/unmuteall` or `!unmuteall`: Unmutes everyone in your voice channel (except Force-Muted users).
    - `/forcemute @member` or `!forcemute @member`: **Force-mutes** a user. They will remain muted even through `muteall` and `unmuteall` until released.
    - `/forceunmute @member` or `!forceunmute @member`: Releases a user from Force-Mute.
+   - `/forceunmuteall` or `!forceunmuteall`: Releases **all** force-muted users at once.
    - `/forcemuted` or `!forcemuted`: Displays all currently force-muted users.
    - `/mute @member` or `!mute @member`: Server-mutes a specific person in voice.
    - `/unmute @member` or `!unmute @member`: Server-unmutes a specific person in voice.
